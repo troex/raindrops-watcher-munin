@@ -1,0 +1,162 @@
+#!/usr/bin/perl -w
+# -*- cperl -*-
+# Magic markers:
+#%# family=auto
+#%# capabilities=autoconf
+# raindrops_watcher --- Determine mean active/queued requests
+#                       on Raindrops::Watcher listener
+
+# Copyright (C) 2011 Troex Nevelin <troex@fury.scancode.ru>
+
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# Except as contained in this notice, the name(s) of the above copyright
+# holders shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written authorization.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# DEALINGS IN THE SOFTWARE.
+
+=head1 NAME
+
+raindrops_watcher - Munin plugin to show active/queued requests on Raindrops::Watcher listener
+
+=encoding utf8
+
+=head1 APPLICABLE SYSTEMS
+
+Any nginx host
+
+=head1 CONFIGURATION
+
+This shows the default configuration of this plugin.  You can override
+the Host, Listener and User Agent.
+
+  [raindrops_*]
+    env.host http://localhost/
+    env.listener 0.0.0.0:80
+    env.ua some-user-agent/0.1
+
+Raindrops::Watcher must also be configured and started. Simple Rack server:
+
+  require "raindrops"
+  use Raindrops::Middleware
+  listeners = %w(
+    0.0.0.0:80
+    /var/run/unicorn/project.sock
+  )
+  run Raindrops::Watcher.new :listeners => listeners
+
+=head1 MAGIC MARKERS
+
+  #%# family=auto
+  #%# capabilities=autoconf
+
+=head1 VERSION
+
+1.0
+
+=head1 BUGS
+
+None known
+
+=head1 AUTHOR
+
+Troex Nevelin <troex@fury.scancode.ru>
+
+=head1 REPOSITORY
+
+Source code at http://github.com/troex/raindrops-watcher-munin
+
+=head1 LICENSE
+
+BSD
+
+=cut
+
+my $ret = undef;
+
+if (! eval "require LWP::UserAgent;") {
+  $ret = "LWP::UserAgent not found";
+}
+
+if (! eval "require URI::Escape;") {
+  $ret = "URI::Escape not found";
+}
+
+## Environment defined variables.
+my $URL      = exists $ENV{'host'}     ? $ENV{'host'}     : "http://localhost";
+my $LISTENER = exists $ENV{'listener'} ? $ENV{'listener'} : "0.0.0.0:80";
+my $UA       = exists $ENV{'ua'}       ? $ENV{'ua'}       : 'raindrops-watcher-client/0.1';
+
+
+## Munin autoconf method.
+if (exists $ARGV[0] and $ARGV[0] eq "autoconf" ) {
+  if ($ret) {
+    print "no ($ret)\n";
+    exit 1;
+  }
+
+  my $req_url = $URL . "/queued/" . URI::Escape::uri_escape($LISTENER) . ".html";
+  my $ua = LWP::UserAgent->new(timeout => 30);
+  # Set the UA to something different from the libwww-perl.
+  # This UA is blocked.
+  $ua->agent($UA);
+  my $response = $ua->request(HTTP::Request->new('GET', $req_url));
+
+  unless ($response->is_success and $response->content =~ /Last-Reset/im) {
+    print "no (no raindrops status on $req_url)\n";
+    exit 1;
+  } else {
+    print "yes\n";
+    exit 0;
+  }
+}
+
+## Munin config method.
+if (exists $ARGV[0] and $ARGV[0] eq "config") {
+  print "graph_title Raindrops::Watcher on $LISTENER\n";
+  print "graph_args --base 1000\n";
+  print "graph_category raindrops\n";
+  print "graph_vlabel requests\n";
+
+  print "active.label active requests\n";
+  print "active.info  active requests\n";
+  print "active.draw  LINE2\n";
+
+  print "queued.label queued requests\n";
+  print "queued.info  queued requests\n";
+  print "queued.draw  LINE2\n";
+
+  exit 0;
+}
+
+my $listener_uri = URI::Escape::uri_escape($LISTENER);
+my $ua = LWP::UserAgent->new(timeout => 30);
+$ua->agent($UA);
+
+foreach (qw(active queued)) {
+  my $req_url = $URL . "/$_/$listener_uri.html";
+  my $value = "U";
+  my $response = $ua->request(HTTP::Request->new('GET', $req_url));
+  if ($response->is_success) {
+    $value = $response->header("X-Mean");
+  }
+  print "$_.value $value\n";
+}
+
+$ua->post($URL . "/reset/" . $listener_uri, {"x" => "reset"});
+
