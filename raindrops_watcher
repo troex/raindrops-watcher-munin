@@ -133,13 +133,13 @@ if (exists $ARGV[0] and $ARGV[0] eq "config") {
   print "graph_category raindrops\n";
   print "graph_vlabel requests\n";
 
-  print "active.label active requests\n";
-  print "active.info  active requests\n";
-  print "active.draw  LINE2\n";
-
   print "queued.label queued requests\n";
   print "queued.info  queued requests\n";
   print "queued.draw  LINE2\n";
+
+  print "active.label active requests\n";
+  print "active.info  active requests\n";
+  print "active.draw  LINE2\n";
 
   exit 0;
 }
@@ -148,7 +148,7 @@ my $listener_uri = URI::Escape::uri_escape($LISTENER);
 my $ua = LWP::UserAgent->new(timeout => 30);
 $ua->agent($UA);
 
-foreach (qw(active queued)) {
+foreach (qw(queued active)) {
   my $req_url = $URL . "/$_/$listener_uri.html";
   my $value = "U";
   my $response = $ua->request(HTTP::Request->new('GET', $req_url));
